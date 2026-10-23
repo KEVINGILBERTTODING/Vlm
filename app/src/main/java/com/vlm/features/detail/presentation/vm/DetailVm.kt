@@ -3,6 +3,7 @@ package com.vlm.features.detail.presentation.vm
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vlm.core.data.MovieRepository
+import com.vlm.core.data.StreamResolver
 import com.vlm.features.detail.presentation.contract.DetailEffect
 import com.vlm.features.detail.presentation.contract.DetailIntent
 import com.vlm.features.detail.presentation.contract.DetailState
@@ -32,7 +33,10 @@ class DetailVm : ViewModel() {
                 val movie = _state.value.movie
                 if (movie != null) {
                     viewModelScope.launch {
-                        _effect.send(DetailEffect.NavigateToPlayer(movie.watchUrl))
+                        _state.update { it.copy(isLoading = true) }
+                        val playerEmbedUrl = StreamResolver.resolveEmbedUrl(movie.watchUrl)
+                        _state.update { it.copy(isLoading = false) }
+                        _effect.send(DetailEffect.NavigateToPlayer(playerEmbedUrl))
                     }
                 }
             }

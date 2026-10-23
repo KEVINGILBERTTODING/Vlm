@@ -15,6 +15,36 @@ object StreamResolver {
         "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
     )
 
+    suspend fun resolveEmbedUrl(pageUrl: String): String = withContext(Dispatchers.IO) {
+        try {
+            if (pageUrl.contains("putarin") || pageUrl.contains("embed") || pageUrl.contains("player")) {
+                return@withContext pageUrl
+            }
+
+            val doc = Jsoup.connect(pageUrl)
+                .userAgent("Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                .timeout(5000)
+                .get()
+
+            var embedUrl = doc.select(".ifx-pemutar[data-src], [data-pemutar][data-src]").attr("data-src")
+            if (embedUrl.isBlank()) {
+                embedUrl = doc.select("iframe.ifx-pemutar-iframe, iframe[src*='putarin'], iframe[src*='embed']").attr("src")
+            }
+
+            if (embedUrl.isNotBlank()) {
+                if (embedUrl.startsWith("//")) {
+                    embedUrl = "https:$embedUrl"
+                } else if (!embedUrl.startsWith("http")) {
+                    embedUrl = "https://idflix.top$embedUrl"
+                }
+                return@withContext embedUrl
+            }
+            pageUrl
+        } catch (_: Exception) {
+            pageUrl
+        }
+    }
+
     suspend fun resolveStreamUrl(pageUrl: String): String = withContext(Dispatchers.IO) {
         try {
             if (pageUrl.contains(".m3u8") || pageUrl.contains(".mp4")) {
