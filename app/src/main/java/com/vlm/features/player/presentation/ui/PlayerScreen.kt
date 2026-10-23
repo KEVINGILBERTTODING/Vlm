@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.media3.common.util.UnstableApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.vlm.features.player.presentation.ui
 
@@ -19,19 +19,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.ui.PlayerView
-import com.vlm.core.data.BackgroundStreamExtractor
 import com.vlm.features.player.presentation.contract.PlayerEffect
 import com.vlm.features.player.presentation.contract.PlayerIntent
 import com.vlm.features.player.presentation.contract.PlayerState
@@ -45,21 +36,6 @@ fun PlayerScreen(
     onIntent: (PlayerIntent) -> Unit,
     onNavigateBack: () -> Unit
 ) {
-    val context = LocalContext.current
-    var extractedStreamUrl by remember { mutableStateOf<String?>(null) }
-    var isExtractingStream by remember { mutableStateOf(true) }
-    var playerErrorEncountered by remember { mutableStateOf(false) }
-
-    LaunchedEffect(key1 = state.url) {
-        if (state.url.isNotEmpty()) {
-            isExtractingStream = true
-            playerErrorEncountered = false
-            val streamUrl = BackgroundStreamExtractor.extractStreamUrl(context, state.url)
-            extractedStreamUrl = streamUrl
-            isExtractingStream = false
-        }
-    }
-
     LaunchedEffect(key1 = true) {
         effect.collect { eff ->
             when (eff) {
@@ -68,61 +44,19 @@ fun PlayerScreen(
         }
     }
 
-    // Configure ExoPlayer with Referer & User-Agent headers required by streaming servers
-    val exoPlayer = remember(context) {
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-            .setDefaultRequestProperties(mapOf("Referer" to "https://idflix.top/", "Origin" to "https://idflix.top"))
-
-        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
-
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(mediaSourceFactory)
-            .build().apply {
-                addListener(object : Player.Listener {
-                    override fun onPlayerError(error: PlaybackException) {
-                        super.onPlayerError(error)
-                        playerErrorEncountered = true
-                    }
-                })
-            }
-    }
-
-    LaunchedEffect(extractedStreamUrl) {
-        extractedStreamUrl?.let { streamUrl ->
-            try {
-                exoPlayer.setMediaItem(MediaItem.fromUri(streamUrl))
-                exoPlayer.prepare()
-                exoPlayer.playWhenReady = true
-            } catch (_: Exception) {
-                playerErrorEncountered = true
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = if (!playerErrorEncountered) "ExoPlayer HD Stream" else "IdFlix Player",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Text(text = "IdFlix HD Player", color = Color.White, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                             color = Color(0xFF4CAF50),
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                text = "100% NO ADS",
+                                text = "100% AD-FREE",
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -148,31 +82,8 @@ fun PlayerScreen(
                 .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
-            if (isExtractingStream) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color(0xFFE50914))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Preparing HD Video Stream...",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            } else if (!playerErrorEncountered && extractedStreamUrl != null) {
-                // Native ExoPlayer PlayerView
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            player = exoPlayer
-                            useController = true
-                            keepScreenOn = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                // Clean full-screen ad-free video player fallback so it NEVER stays blank
+            if (state.url.isNotEmpty()) {
+                // Pure clean WebView Video Player Container (Loads putarin.xyz / embed player directly, 100% ad-free & full screen)
                 AndroidView(
                     factory = { ctx ->
                         WebView(ctx).apply {
@@ -193,14 +104,23 @@ fun PlayerScreen(
                             }
 
                             webChromeClient = object : WebChromeClient() {
-                                override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean {
-                                    return false // Block ad popup windows
+                                override fun onCreateWindow(
+                                    view: WebView?,
+                                    isDialog: Boolean,
+                                    isUserGesture: Boolean,
+                                    resultMsg: android.os.Message?
+                                ): Boolean {
+                                    return false // Reject all ad popup windows & new tabs
                                 }
                             }
 
                             webViewClient = object : WebViewClient() {
-                                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                                override fun shouldInterceptRequest(
+                                    view: WebView?,
+                                    request: WebResourceRequest?
+                                ): WebResourceResponse? {
                                     val lowerUrl = request?.url?.toString()?.lowercase() ?: ""
+                                    // Block known ad & tracking networks
                                     if (lowerUrl.contains("doubleclick") || lowerUrl.contains("google-analytics") ||
                                         lowerUrl.contains("adservice") || lowerUrl.contains("popads") ||
                                         lowerUrl.contains("exoclick") || lowerUrl.contains("histats") ||
@@ -211,24 +131,30 @@ fun PlayerScreen(
                                     return super.shouldInterceptRequest(view, request)
                                 }
 
-                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: WebResourceRequest?
+                                ): Boolean {
                                     val urlStr = request?.url?.toString()?.lowercase() ?: ""
-                                    if (!urlStr.contains("idflix.top") && !urlStr.contains("mcloud") &&
-                                        !urlStr.contains("streamtape") && !urlStr.contains("embed") &&
-                                        !urlStr.contains("vidsrc") && !urlStr.contains("player")
+                                    // Allow putarin.xyz and streaming servers, block external ad redirects
+                                    if (!urlStr.contains("idflix.top") && !urlStr.contains("putarin") &&
+                                        !urlStr.contains("mcloud") && !urlStr.contains("streamtape") &&
+                                        !urlStr.contains("embed") && !urlStr.contains("vidsrc") &&
+                                        !urlStr.contains("player")
                                     ) {
-                                        return true // Block external redirects
+                                        return true // Block redirect
                                     }
                                     return false
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
-                                    val cleanScript = """
+                                    // Inject script to extract data-src from .ifx-pemutar or load putarin.xyz embed directly, expanded to 100% full screen with 0% ads
+                                    val cleanPlayerScript = """
                                         javascript:(function() {
                                             window.open = function() { return null; };
-                                            function isolatePlayer() {
-                                                var pemutar = document.querySelector('[data-pemutar], .data-pemutar, iframe[data-src], div[data-src]');
+                                            function setupCleanPlayer() {
+                                                var pemutar = document.querySelector('.ifx-pemutar, [data-pemutar], iframe.ifx-pemutar-iframe, iframe[data-src], div[data-src]');
                                                 if (pemutar) {
                                                     var pSrc = pemutar.getAttribute('data-src') || pemutar.getAttribute('data-pemutar');
                                                     if (pSrc) {
@@ -238,15 +164,15 @@ fun PlayerScreen(
                                                         }
                                                     }
                                                 }
-                                                var iframe = document.querySelectorAll('iframe[src*="embed"], iframe[src*="player"], iframe[src*="stream"], iframe[data-src], #player, .player');
-                                                if (iframe && iframe.length > 0) {
-                                                    for (var k = 0; k < iframe.length; k++) {
-                                                        iframe[k].style.position = 'fixed';
-                                                        iframe[k].style.top = '0';
-                                                        iframe[k].style.left = '0';
-                                                        iframe[k].style.width = '100vw';
-                                                        iframe[k].style.height = '100vh';
-                                                        iframe[k].style.zIndex = '999999';
+                                                var iframes = document.querySelectorAll('iframe[src*="putarin"], iframe[src*="embed"], iframe[src*="player"], iframe[src*="stream"], iframe[data-src], #player, .player, video');
+                                                if (iframes && iframes.length > 0) {
+                                                    for (var k = 0; k < iframes.length; k++) {
+                                                        iframes[k].style.position = 'fixed';
+                                                        iframes[k].style.top = '0';
+                                                        iframes[k].style.left = '0';
+                                                        iframes[k].style.width = '100vw';
+                                                        iframes[k].style.height = '100vh';
+                                                        iframes[k].style.zIndex = '999999';
                                                     }
                                                 }
                                                 var ads = document.querySelectorAll('iframe[src*="ads"], .ad, .ads, .advertisement, div[id*="ad-"], div[class*="popup"], .modal-backdrop, .popunder, a[target="_blank"]');
@@ -255,11 +181,11 @@ fun PlayerScreen(
                                                     try { ads[i].remove(); } catch(e) {}
                                                 }
                                             }
-                                            isolatePlayer();
-                                            setInterval(isolatePlayer, 500);
+                                            setupCleanPlayer();
+                                            setInterval(setupCleanPlayer, 500);
                                         })();
                                     """.trimIndent()
-                                    view?.evaluateJavascript(cleanScript, null)
+                                    view?.evaluateJavascript(cleanPlayerScript, null)
                                 }
                             }
 
